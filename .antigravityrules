@@ -1,0 +1,26 @@
+# ERP AI-Native Project Rules
+AI-Centric Execution: AI không phải là tính năng, AI là người vận hành. Mọi logic nghiệp vụ phải được thiết kế để AI có thể hiểu, gọi và thực thi.
+
+Invisible UI (Zero-UI): Giao diện chỉ xuất hiện khi cần thiết. Ưu tiên Thanh lệnh vạn năng (Command Bar) và Giao diện sinh tạo (Generative UI).
+
+Absolute Multi-tenancy: Cô lập dữ liệu khách hàng ngay từ tầng hạ tầng (Database Layer), không chỉ ở tầng ứng dụng.
+
+Open Connectivity (MCP): Sử dụng giao thức Model Context Protocol để biến mọi thực thể (DB cũ, API ngoài) thành một tài nguyên chuẩn hóa cho AI.
+## 1. Kiến trúc Hệ thống (System Architecture)
+- **Framework:** Rust (Axum), React (Frontend), Tauri (Desktop Wrapper).
+- **Database:** PostgreSQL (OLTP) với pgvector, ClickHouse (OLAP).
+- **Communication:** Kafka cho Event-driven, MCP cho AI Tooling.
+- **Multi-tenancy:** Luôn sử dụng Row-Level Security (RLS) dựa trên `tenant_id`.
+
+## 2. Quy tắc lập trình Rust (Backend)
+- **MCP-First:** Mọi logic nghiệp vụ phải được bọc trong các hàm có `metadata()` mô tả mục đích bằng tiếng Việt để AI có thể gọi (Function Calling).
+- **Strict Isolation:** Cấm viết query SQL mà không có điều kiện `tenant_id`. AI phải tự động gợi ý thêm RLS vào mọi Model mới.
+- **Type Safety:** Sử dụng `serde` để validate chặt chẽ JSON từ AI. Không dùng `.unwrap()`.
+
+## 3. Quy tắc AI Orchestration
+- **Intent Discovery:** Khi nhận input từ người dùng, AI phải phân tích ý định (Intent) trước khi chọn Skill.
+- **Human-in-the-loop (HITL):** Với các tác vụ: thanh toán, xóa dữ liệu, xuất kho > 50tr, AI bắt buộc phải tạo `ConfirmationCard` để người dùng duyệt thủ công.
+
+## 4. Quy tắc Frontend (Tauri/React)
+- **Generative UI:** UI không được thiết kế tĩnh. Hãy ưu tiên các component có khả năng thay đổi nội dung dựa trên dữ liệu AI trả về.
+- **Command Bar:** Giao diện trung tâm là thanh lệnh thông minh, không phải menu truyền thống.
