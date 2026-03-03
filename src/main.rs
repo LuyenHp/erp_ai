@@ -53,6 +53,7 @@ async fn main() {
     // API routes (protected – JWT required)
     let api_routes = iam_routes()
         .route("/auth/me", get(auth::handlers::me))
+        .nest("/ai", crate::core::ai::routes())
         .layer(middleware::from_fn(auth::middleware::auth_middleware));
 
     // Build main router

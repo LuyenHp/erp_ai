@@ -66,6 +66,7 @@ services:
       APP_HOST: 0.0.0.0
       APP_PORT: 3000
       RUST_LOG: info
+      GOOGLE_AI_KEY: ${GOOGLE_AI_KEY}
     # Only expose to localhost for Cloudflared tunnel
     ports:
       - "127.0.0.1:3000:3000"
