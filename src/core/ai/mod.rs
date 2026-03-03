@@ -1,6 +1,7 @@
 pub mod client;
 pub mod handlers;
 pub mod models;
+pub mod provider;
 
 use axum::{routing::post, Router};
 use sqlx::{Pool, Postgres};

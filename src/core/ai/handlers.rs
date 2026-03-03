@@ -1,11 +1,11 @@
 use axum::{extract::State, Json, response::IntoResponse};
 use crate::core::ai::models::*;
-use crate::core::ai::client::GeminiClient;
+use crate::core::ai::client::AIClient;
 use crate::core::errors::AppError;
 use once_cell::sync::Lazy;
 use sqlx::{Pool, Postgres};
 
-static AI_CLIENT: Lazy<GeminiClient> = Lazy::new(|| GeminiClient::new());
+static AI_CLIENT: Lazy<AIClient> = Lazy::new(|| AIClient::new());
 
 pub async fn process_ai_command(
     State(pool): State<Pool<Postgres>>,

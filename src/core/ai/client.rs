@@ -1,14 +1,16 @@
 use crate::core::errors::AppError;
 use crate::core::ai::models::*;
+use crate::core::ai::provider::AIProvider;
 use reqwest::Client;
 use std::env;
+use async_trait::async_trait;
 
-pub struct GeminiClient {
+pub struct GeminiProvider {
     client: Client,
     api_key: String,
 }
 
-impl GeminiClient {
+impl GeminiProvider {
     pub fn new() -> Self {
         let api_key = env::var("GOOGLE_AI_KEY").expect("GOOGLE_AI_KEY must be set");
         Self {
@@ -16,8 +18,11 @@ impl GeminiClient {
             api_key,
         }
     }
+}
 
-    pub async fn process_command(&self, prompt: &str) -> Result<AICommandResponse, AppError> {
+#[async_trait]
+impl AIProvider for GeminiProvider {
+    async fn process_command(&self, prompt: &str) -> Result<AICommandResponse, AppError> {
         let system_prompt = r#"
             You are the "Brain" of an AI-Native ERP System. 
             Your goal is to understand user commands and convert them into system actions.
@@ -86,16 +91,144 @@ impl GeminiClient {
             .map(|p| p.text.clone())
             .ok_or_else(|| AppError::Internal("Empty response from AI".to_string()))?;
 
-        // Extract JSON from potential markdown code blocks
-        let json_text = if let Some(start) = text.find('{') {
-            if let Some(end) = text.rfind('}') {
-                &text[start..=end]
-            } else { &text }
-        } else { &text };
-
-        let ai_res: AICommandResponse = serde_json::from_str(json_text)
-            .map_err(|e| AppError::Internal(format!("AI returned invalid JSON: {}. Original: {}", e, text)))?;
-
-        Ok(ai_res)
+        extract_json_response(&text)
     }
+}
+
+pub struct OllamaProvider {
+    client: Client,
+    model: String,
+    base_url: String,
+}
+
+impl OllamaProvider {
+    pub fn new() -> Self {
+        let model = env::var("OLLAMA_MODEL").unwrap_or_else(|_| "deepseek-r1:7b".to_string());
+        let base_url = env::var("OLLAMA_BASE_URL").unwrap_or_else(|_| "http://localhost:11434".to_string());
+        Self {
+            client: Client::new(),
+            model,
+            base_url,
+        }
+    }
+}
+
+#[async_trait]
+impl AIProvider for OllamaProvider {
+    async fn process_command(&self, prompt: &str) -> Result<AICommandResponse, AppError> {
+        let system_prompt = "You are the Brain of an AI-Native ERP. Return ONLY JSON for actions: create_department, assign_role, navigate. Reply in Vietnamese.";
+        
+        // Ollama /api/generate or /api/chat
+        let url = format!("{}/api/chat", self.base_url);
+        
+        let request = serde_json::json!({
+            "model": self.model,
+            "messages": [
+                { "role": "system", "content": system_prompt },
+                { "role": "user", "content": prompt }
+            ],
+            "stream": false,
+            "format": "json"
+        });
+
+        let response = self.client.post(&url)
+            .json(&request)
+            .send()
+            .await
+            .map_err(|e| AppError::Internal(format!("Ollama API error: {}", e)))?;
+
+        let res_body: serde_json::Value = response.json().await
+            .map_err(|e| AppError::Internal(format!("Failed to parse Ollama response: {}", e)))?;
+
+        let text = res_body["message"]["content"].as_str()
+            .ok_or_else(|| AppError::Internal("Empty response from Ollama".to_string()))?;
+
+        extract_json_response(text)
+    }
+}
+
+pub struct OpenAIProvider {
+    client: Client,
+    api_key: String,
+    model: String,
+    base_url: String,
+}
+
+impl OpenAIProvider {
+    pub fn new() -> Self {
+        let api_key = env::var("OPENAI_API_KEY").expect("OPENAI_API_KEY must be set");
+        let model = env::var("OPENAI_MODEL").unwrap_or_else(|_| "gpt-4o".to_string());
+        let base_url = env::var("OPENAI_BASE_URL").unwrap_or_else(|_| "https://api.openai.com/v1".to_string());
+        Self {
+            client: Client::new(),
+            api_key,
+            model,
+            base_url,
+        }
+    }
+}
+
+#[async_trait]
+impl AIProvider for OpenAIProvider {
+    async fn process_command(&self, prompt: &str) -> Result<AICommandResponse, AppError> {
+        let url = format!("{}/chat/completions", self.base_url);
+        let system_prompt = "You are the Brain of an AI-Native ERP. Return ONLY JSON. Reply in Vietnamese.";
+
+        let request = serde_json::json!({
+            "model": self.model,
+            "messages": [
+                { "role": "system", "content": system_prompt },
+                { "role": "user", "content": prompt }
+            ],
+            "response_format": { "type": "json_object" }
+        });
+
+        let response = self.client.post(&url)
+            .header("Authorization", format!("Bearer {}", self.api_key))
+            .json(&request)
+            .send()
+            .await
+            .map_err(|e| AppError::Internal(format!("OpenAI API error: {}", e)))?;
+
+        let res_body: serde_json::Value = response.json().await
+            .map_err(|e| AppError::Internal(format!("Failed to parse OpenAI response: {}", e)))?;
+
+        let text = res_body["choices"][0]["message"]["content"].as_str()
+            .ok_or_else(|| AppError::Internal("Empty response from OpenAI".to_string()))?;
+
+        extract_json_response(text)
+    }
+}
+
+pub struct AIClient {
+    provider: Box<dyn AIProvider>,
+}
+
+impl AIClient {
+    pub fn new() -> Self {
+        let provider_type = env::var("AI_PROVIDER").unwrap_or_else(|_| "gemini".to_string());
+        let provider: Box<dyn AIProvider> = match provider_type.as_str() {
+            "gemini" => Box::new(GeminiProvider::new()),
+            "ollama" => Box::new(OllamaProvider::new()),
+            "openai" => Box::new(OpenAIProvider::new()),
+            _ => panic!("Unsupported AI provider: {}", provider_type),
+        };
+
+        Self { provider }
+    }
+
+    pub async fn process_command(&self, prompt: &str) -> Result<AICommandResponse, AppError> {
+        self.provider.process_command(prompt).await
+    }
+}
+
+fn extract_json_response(text: &str) -> Result<AICommandResponse, AppError> {
+    let json_text = if let Some(start) = text.find('{') {
+        if let Some(end) = text.rfind('}') {
+            &text[start..=end]
+        } else { text }
+    } else { text };
+
+    serde_json::from_str(json_text)
+        .map_err(|e| AppError::Internal(format!("AI returned invalid JSON: {}. Original: {}", e, text)))
 }
