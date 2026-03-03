@@ -22,6 +22,11 @@ async fn health_check() -> Json<Value> {
     }))
 }
 
+use std::sync::Arc;
+use crate::core::ai::client::AIClient;
+use crate::core::cache::CacheManager;
+use crate::core::AppState;
+
 #[tokio::main]
 async fn main() {
     // Initialize tracing
@@ -45,6 +50,11 @@ async fn main() {
         .await
         .expect("Failed to run migrations");
 
+    // Initialize AppState
+    let cache = CacheManager::new();
+    let ai = Arc::new(AIClient::new(cache.clone()));
+    let state = AppState { pool, ai, cache };
+
     // Auth routes (public – no JWT required)
     let auth_routes = Router::new()
         .route("/register", axum::routing::post(auth::handlers::register))
@@ -61,7 +71,7 @@ async fn main() {
         .route("/health", get(health_check))
         .nest("/auth", auth_routes)
         .nest("/api", api_routes)
-        .with_state(pool);
+        .with_state(state);
 
     // Bind address
     let host = std::env::var("APP_HOST").unwrap_or_else(|_| "0.0.0.0".into());

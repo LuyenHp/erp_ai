@@ -5,7 +5,7 @@
 use axum::{extract::State, Json};
 use chrono::Utc;
 use jsonwebtoken::{encode, EncodingKey, Header};
-use sqlx::PgPool;
+use crate::core::AppState;
 use uuid::Uuid;
 
 use crate::core::errors::AppError;
@@ -56,9 +56,10 @@ fn create_token(user: &User) -> Result<String, AppError> {
 /// 4. Tạo user thuộc tenant đó
 /// 5. Trả JWT token
 pub async fn register(
-    State(pool): State<PgPool>,
+    State(state): State<AppState>,
     Json(req): Json<RegisterRequest>,
 ) -> Result<Json<AuthResponse>, AppError> {
+    let pool = &state.pool;
     // Validate
     if req.email.is_empty() || req.password.is_empty() || req.full_name.is_empty() {
         return Err(AppError::BadRequest("All fields are required".into()));
@@ -147,15 +148,16 @@ pub async fn register(
 
 /// Đăng nhập – verify email/password, trả JWT token.
 pub async fn login(
-    State(pool): State<PgPool>,
+    State(state): State<AppState>,
     Json(req): Json<LoginRequest>,
 ) -> Result<Json<AuthResponse>, AppError> {
+    let pool = &state.pool;
     // Tìm user theo email (bypass RLS vì chưa có tenant context)
     let user = sqlx::query_as::<_, User>(
         "SELECT * FROM users WHERE email = $1 AND is_active = TRUE",
     )
     .bind(&req.email)
-    .fetch_optional(&pool)
+    .fetch_optional(pool)
     .await?
     .ok_or_else(|| AppError::Unauthorized("Invalid email or password".into()))?;
 
@@ -182,15 +184,16 @@ pub async fn login(
 
 /// Lấy thông tin user hiện tại (từ JWT token).
 pub async fn me(
-    State(pool): State<PgPool>,
+    State(state): State<AppState>,
     auth: axum::Extension<AuthContext>,
 ) -> Result<Json<UserInfo>, AppError> {
+    let pool = &state.pool;
     let user = sqlx::query_as::<_, User>(
         "SELECT * FROM users WHERE id = $1 AND tenant_id = $2",
     )
     .bind(auth.user_id)
     .bind(auth.tenant_id)
-    .fetch_optional(&pool)
+    .fetch_optional(pool)
     .await?
     .ok_or_else(|| AppError::NotFound("User not found".into()))?;
 

@@ -19,6 +19,7 @@ use axum::{
     Json,
 };
 use serde_json::json;
+use crate::core::AppState;
 use sqlx::PgPool;
 use uuid::Uuid;
 
@@ -83,11 +84,12 @@ impl PermissionRequirement {
 /// ## Extensions cần thiết (set bởi auth middleware trước):
 /// - `AuthContext`: chứa user_id và tenant_id
 pub async fn require_permission(
-    State(pool): State<PgPool>,
+    State(state): State<AppState>,
     requirement: State<PermissionRequirement>,
     request: Request<Body>,
     next: Next,
 ) -> Response {
+    let pool = &state.pool;
     // -------------------------------------------------------------------------
     // 1. Lấy AuthContext từ extensions (đã set bởi auth middleware)
     // -------------------------------------------------------------------------
@@ -138,7 +140,7 @@ pub async fn require_permission(
     //    Filter theo tenant_id (Multi-tenancy) + context cụ thể
     // -------------------------------------------------------------------------
     let has_permission = match check_context_permission(
-        &pool,
+        pool,
         auth_ctx.tenant_id,
         auth_ctx.user_id,
         &requirement.permission_code,

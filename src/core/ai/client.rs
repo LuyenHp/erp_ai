@@ -2,8 +2,10 @@ use crate::core::errors::AppError;
 use crate::core::ai::models::*;
 use crate::core::ai::provider::AIProvider;
 use reqwest::Client;
+use crate::core::cache::CacheManager;
 use std::env;
 use async_trait::async_trait;
+use tracing;
 
 pub struct GeminiProvider {
     client: Client,
@@ -238,10 +240,11 @@ impl AIProvider for OpenAIProvider {
 
 pub struct AIClient {
     provider: Box<dyn AIProvider>,
+    cache: CacheManager,
 }
 
 impl AIClient {
-    pub fn new() -> Self {
+    pub fn new(cache: CacheManager) -> Self {
         let provider_type = env::var("AI_PROVIDER").unwrap_or_else(|_| "gemini".to_string());
         let provider: Box<dyn AIProvider> = match provider_type.as_str() {
             "gemini" => Box::new(GeminiProvider::new()),
@@ -250,11 +253,40 @@ impl AIClient {
             _ => panic!("Unsupported AI provider: {}", provider_type),
         };
 
-        Self { provider }
+        Self { provider, cache }
     }
 
     pub async fn process_command(&self, prompt: &str) -> Result<AICommandResponse, AppError> {
-        self.provider.process_command(prompt).await
+        let cache_key = prompt.trim().to_lowercase();
+        
+        // 1. Check Redis Cache
+        match self.cache.get_ai_cache(&cache_key).await {
+            Ok(Some(cached)) => {
+                if let Ok(response) = serde_json::from_value::<AICommandResponse>(cached) {
+                    tracing::info!("🚀 AI Cache result returned for: {}", cache_key);
+                    return Ok(response);
+                }
+            },
+            Ok(None) => {
+                // Already logged miss inside get_ai_cache
+            },
+            Err(e) => {
+                tracing::warn!("⚠️ Redis lookup error for {}: {}", cache_key, e);
+            }
+        }
+
+        // 2. Call AI Provider
+        tracing::info!("🤖 AI Cache miss, calling provider: {}", cache_key);
+        let response = self.provider.process_command(prompt).await?;
+        
+        // 3. Save to Redis Cache (TTL 24h = 86400s)
+        if let Ok(val) = serde_json::to_value(&response) {
+            if let Err(e) = self.cache.set_ai_cache(&cache_key, &val, 86400).await {
+                tracing::error!("❌ Failed to save AI response to Redis: {}", e);
+            }
+        }
+        
+        Ok(response)
     }
 }
 

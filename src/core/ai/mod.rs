@@ -4,9 +4,9 @@ pub mod models;
 pub mod provider;
 
 use axum::{routing::post, Router};
-use sqlx::{Pool, Postgres};
+use crate::core::AppState;
 
-pub fn routes() -> Router<Pool<Postgres>> {
+pub fn routes() -> Router<AppState> {
     Router::new()
         .route("/command", post(handlers::process_ai_command))
 }

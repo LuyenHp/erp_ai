@@ -70,6 +70,7 @@ services:
       AI_PROVIDER: ${AI_PROVIDER:-ollama}
       OLLAMA_MODEL: ${OLLAMA_MODEL:-deepseek-r1:7b}
       OLLAMA_BASE_URL: http://ollama:11434
+      REDIS_URL: redis://redis:6379
     # Only expose to localhost for Cloudflared tunnel
     ports:
       - "127.0.0.1:3000:3000"
@@ -79,6 +80,8 @@ services:
       kafka:
         condition: service_healthy
       ollama:
+        condition: service_healthy
+      redis:
         condition: service_healthy
     healthcheck:
       test: ["CMD-SHELL", "curl -f http://localhost:3000/health || exit 1"]
@@ -123,10 +126,33 @@ services:
       ollama:
         condition: service_healthy
 
+  # ---------------------------------------------------------------------------
+  # Redis – AI Response Cache
+  # ---------------------------------------------------------------------------
+  redis:
+    image: redis:7-alpine
+    container_name: erp_ai_redis
+    restart: unless-stopped
+    volumes:
+      - redis_data:/data
+    # INTERNAL ONLY – not exposed to host (Cloudflared policy)
+    expose:
+      - "6379"
+    # Map to host's localhost for development debugging
+    ports:
+      - "127.0.0.1:6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
 volumes:
   postgres_data:
     driver: local
   kafka_data:
     driver: local
   ollama_data:
+    driver: local
+  redis_data:
     driver: local

@@ -1,18 +1,15 @@
 use axum::{extract::State, Json, response::IntoResponse};
 use crate::core::ai::models::*;
-use crate::core::ai::client::AIClient;
 use crate::core::errors::AppError;
-use once_cell::sync::Lazy;
-use sqlx::{Pool, Postgres};
-
-static AI_CLIENT: Lazy<AIClient> = Lazy::new(|| AIClient::new());
+use crate::core::AppState;
 
 pub async fn process_ai_command(
-    State(pool): State<Pool<Postgres>>,
+    State(state): State<AppState>,
     auth: axum::Extension<crate::core::iam::middleware::AuthContext>,
     Json(payload): Json<AICommandRequest>,
 ) -> Result<impl IntoResponse, AppError> {
-    let mut response = AI_CLIENT.process_command(&payload.prompt).await?;
+    let mut response = state.ai.process_command(&payload.prompt).await?;
+    let pool = &state.pool;
     
     // Execute action if provided
     if let Some(action) = &response.action {
@@ -23,7 +20,7 @@ pub async fn process_ai_command(
                     sqlx::query_scalar("SELECT path FROM departments WHERE id = $1 AND tenant_id = $2")
                         .bind(uuid::Uuid::parse_str(pid).map_err(|_| AppError::BadRequest("Invalid parent ID".into()))?)
                         .bind(auth.tenant_id)
-                        .fetch_optional(&pool)
+                        .fetch_optional(pool)
                         .await
                         .map_err(AppError::from)?
                 } else { None };
@@ -37,7 +34,7 @@ pub async fn process_ai_command(
                     .bind(name.to_lowercase().replace(' ', "_"))
                     .bind(path)
                     .bind(parent_id.as_ref().and_then(|id| uuid::Uuid::parse_str(id).ok()))
-                    .execute(&pool)
+                    .execute(pool)
                     .await
                     .map_err(AppError::from)?;
                 

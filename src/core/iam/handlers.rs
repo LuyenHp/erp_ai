@@ -7,6 +7,7 @@ use axum::{
     Json,
 };
 use serde::Deserialize;
+use crate::core::AppState;
 use sqlx::PgPool;
 use uuid::Uuid;
 
@@ -46,10 +47,11 @@ pub struct CreateDepartmentRequest {
 
 /// POST /api/departments – Tạo phòng ban mới
 pub async fn create_department(
-    State(pool): State<PgPool>,
+    State(state): State<AppState>,
     auth: axum::Extension<AuthContext>,
     Json(req): Json<CreateDepartmentRequest>,
 ) -> Result<Json<Department>, AppError> {
+    let pool = &state.pool;
     if req.name.is_empty() || req.code.is_empty() {
         return Err(AppError::BadRequest("name and code are required".into()));
     }
@@ -62,7 +64,7 @@ pub async fn create_department(
             )
             .bind(parent_id)
             .bind(auth.tenant_id)
-            .fetch_optional(&pool)
+            .fetch_optional(pool)
             .await?
             .ok_or_else(|| AppError::NotFound("Parent department not found".into()))?;
 
@@ -90,7 +92,7 @@ pub async fn create_department(
     .bind(&path)
     .bind(level)
     .bind(&req.description)
-    .fetch_one(&pool)
+    .fetch_one(pool)
     .await?;
 
     tracing::info!(dept_id = %dept.id, "Department created: {}", dept.name);
@@ -99,26 +101,28 @@ pub async fn create_department(
 
 /// GET /api/departments/tree – Lấy toàn bộ sơ đồ tổ chức dạng cây
 pub async fn get_department_tree(
-    State(pool): State<PgPool>,
+    State(state): State<AppState>,
     auth: axum::Extension<AuthContext>,
 ) -> Result<Json<Vec<DepartmentTreeNode>>, AppError> {
-    let departments = org_tree::get_org_tree_cte(&pool, auth.tenant_id, None).await?;
+    let pool = &state.pool;
+    let departments = org_tree::get_org_tree_cte(pool, auth.tenant_id, None).await?;
     let tree = org_tree::build_tree_structure(departments);
     Ok(Json(tree))
 }
 
 /// GET /api/departments/:id
 pub async fn get_department(
-    State(pool): State<PgPool>,
+    State(state): State<AppState>,
     auth: axum::Extension<AuthContext>,
     Path(id): Path<Uuid>,
 ) -> Result<Json<Department>, AppError> {
+    let pool = &state.pool;
     let dept = sqlx::query_as::<_, Department>(
         "SELECT id, tenant_id, name, code, parent_id, path::TEXT as path, level, description, is_active, created_at, updated_at FROM departments WHERE id = $1 AND tenant_id = $2",
     )
     .bind(id)
     .bind(auth.tenant_id)
-    .fetch_optional(&pool)
+    .fetch_optional(pool)
     .await?
     .ok_or_else(|| AppError::NotFound("Department not found".into()))?;
 
@@ -134,11 +138,12 @@ pub struct UpdateDepartmentRequest {
 
 /// PUT /api/departments/:id
 pub async fn update_department(
-    State(pool): State<PgPool>,
+    State(state): State<AppState>,
     auth: axum::Extension<AuthContext>,
     Path(id): Path<Uuid>,
     Json(req): Json<UpdateDepartmentRequest>,
 ) -> Result<Json<Department>, AppError> {
+    let pool = &state.pool;
     let dept = sqlx::query_as::<_, Department>(
         r#"
         UPDATE departments
@@ -155,7 +160,7 @@ pub async fn update_department(
     .bind(&req.name)
     .bind(&req.description)
     .bind(req.is_active)
-    .fetch_optional(&pool)
+    .fetch_optional(pool)
     .await?
     .ok_or_else(|| AppError::NotFound("Department not found".into()))?;
 
@@ -164,16 +169,17 @@ pub async fn update_department(
 
 /// DELETE /api/departments/:id (soft delete)
 pub async fn delete_department(
-    State(pool): State<PgPool>,
+    State(state): State<AppState>,
     auth: axum::Extension<AuthContext>,
     Path(id): Path<Uuid>,
 ) -> Result<Json<serde_json::Value>, AppError> {
+    let pool = &state.pool;
     let result = sqlx::query(
         "UPDATE departments SET is_active = FALSE, updated_at = NOW() WHERE id = $1 AND tenant_id = $2",
     )
     .bind(id)
     .bind(auth.tenant_id)
-    .execute(&pool)
+    .execute(pool)
     .await?;
 
     if result.rows_affected() == 0 {
@@ -196,10 +202,11 @@ pub struct CreateRoleRequest {
 
 /// POST /api/roles
 pub async fn create_role(
-    State(pool): State<PgPool>,
+    State(state): State<AppState>,
     auth: axum::Extension<AuthContext>,
     Json(req): Json<CreateRoleRequest>,
 ) -> Result<Json<Role>, AppError> {
+    let pool = &state.pool;
     if req.name.is_empty() || req.code.is_empty() {
         return Err(AppError::BadRequest("name and code are required".into()));
     }
@@ -215,7 +222,7 @@ pub async fn create_role(
     .bind(&req.name)
     .bind(&req.code)
     .bind(&req.description)
-    .fetch_one(&pool)
+    .fetch_one(pool)
     .await?;
 
     Ok(Json(role))
@@ -223,14 +230,15 @@ pub async fn create_role(
 
 /// GET /api/roles
 pub async fn list_roles(
-    State(pool): State<PgPool>,
+    State(state): State<AppState>,
     auth: axum::Extension<AuthContext>,
 ) -> Result<Json<Vec<Role>>, AppError> {
+    let pool = &state.pool;
     let roles = sqlx::query_as::<_, Role>(
         "SELECT * FROM roles WHERE tenant_id = $1 AND is_active = TRUE ORDER BY name",
     )
     .bind(auth.tenant_id)
-    .fetch_all(&pool)
+    .fetch_all(pool)
     .await?;
 
     Ok(Json(roles))
@@ -238,16 +246,17 @@ pub async fn list_roles(
 
 /// GET /api/roles/:id
 pub async fn get_role(
-    State(pool): State<PgPool>,
+    State(state): State<AppState>,
     auth: axum::Extension<AuthContext>,
     Path(id): Path<Uuid>,
 ) -> Result<Json<Role>, AppError> {
+    let pool = &state.pool;
     let role = sqlx::query_as::<_, Role>(
         "SELECT * FROM roles WHERE id = $1 AND tenant_id = $2",
     )
     .bind(id)
     .bind(auth.tenant_id)
-    .fetch_optional(&pool)
+    .fetch_optional(pool)
     .await?
     .ok_or_else(|| AppError::NotFound("Role not found".into()))?;
 
@@ -263,11 +272,12 @@ pub struct UpdateRoleRequest {
 
 /// PUT /api/roles/:id
 pub async fn update_role(
-    State(pool): State<PgPool>,
+    State(state): State<AppState>,
     auth: axum::Extension<AuthContext>,
     Path(id): Path<Uuid>,
     Json(req): Json<UpdateRoleRequest>,
 ) -> Result<Json<Role>, AppError> {
+    let pool = &state.pool;
     let role = sqlx::query_as::<_, Role>(
         r#"
         UPDATE roles
@@ -284,7 +294,7 @@ pub async fn update_role(
     .bind(&req.name)
     .bind(&req.description)
     .bind(req.is_active)
-    .fetch_optional(&pool)
+    .fetch_optional(pool)
     .await?
     .ok_or_else(|| AppError::NotFound("Role not found or is a system role".into()))?;
 
@@ -293,16 +303,17 @@ pub async fn update_role(
 
 /// DELETE /api/roles/:id (soft delete, block system roles)
 pub async fn delete_role(
-    State(pool): State<PgPool>,
+    State(state): State<AppState>,
     auth: axum::Extension<AuthContext>,
     Path(id): Path<Uuid>,
 ) -> Result<Json<serde_json::Value>, AppError> {
+    let pool = &state.pool;
     let result = sqlx::query(
         "UPDATE roles SET is_active = FALSE, updated_at = NOW() WHERE id = $1 AND tenant_id = $2 AND is_system = FALSE",
     )
     .bind(id)
     .bind(auth.tenant_id)
-    .execute(&pool)
+    .execute(pool)
     .await?;
 
     if result.rows_affected() == 0 {
@@ -326,10 +337,11 @@ pub struct CreatePermissionRequest {
 
 /// POST /api/permissions
 pub async fn create_permission(
-    State(pool): State<PgPool>,
+    State(state): State<AppState>,
     auth: axum::Extension<AuthContext>,
     Json(req): Json<CreatePermissionRequest>,
 ) -> Result<Json<Permission>, AppError> {
+    let pool = &state.pool;
     if req.code.is_empty() || req.name.is_empty() {
         return Err(AppError::BadRequest("code and name are required".into()));
     }
@@ -346,7 +358,7 @@ pub async fn create_permission(
     .bind(&req.name)
     .bind(&req.description)
     .bind(&req.module)
-    .fetch_one(&pool)
+    .fetch_one(pool)
     .await?;
 
     Ok(Json(perm))
@@ -354,14 +366,15 @@ pub async fn create_permission(
 
 /// GET /api/permissions
 pub async fn list_permissions(
-    State(pool): State<PgPool>,
+    State(state): State<AppState>,
     auth: axum::Extension<AuthContext>,
 ) -> Result<Json<Vec<Permission>>, AppError> {
+    let pool = &state.pool;
     let perms = sqlx::query_as::<_, Permission>(
         "SELECT * FROM permissions WHERE tenant_id = $1 ORDER BY module, code",
     )
     .bind(auth.tenant_id)
-    .fetch_all(&pool)
+    .fetch_all(pool)
     .await?;
 
     Ok(Json(perms))
@@ -373,10 +386,11 @@ pub async fn list_permissions(
 
 /// POST /api/user-context-roles – Gán role cho user tại context (→ HITL pending approval)
 pub async fn assign_context_role(
-    State(pool): State<PgPool>,
+    State(state): State<AppState>,
     auth: axum::Extension<AuthContext>,
     Json(req): Json<AssignCrossRoleInput>,
 ) -> Result<Json<PendingApproval>, AppError> {
+    let pool = &state.pool;
     // Tạo pending approval thay vì gán trực tiếp (HITL rule)
     let payload = serde_json::json!({
         "user_id": req.user_id,
@@ -395,7 +409,7 @@ pub async fn assign_context_role(
     .bind(auth.tenant_id)
     .bind(&payload)
     .bind(auth.user_id)
-    .fetch_one(&pool)
+    .fetch_one(pool)
     .await?;
 
     tracing::info!(approval_id = %approval.id, "Cross-role assignment pending approval");
@@ -404,14 +418,15 @@ pub async fn assign_context_role(
 
 /// GET /api/user-context-roles – List tất cả role assignments của tenant
 pub async fn list_context_roles(
-    State(pool): State<PgPool>,
+    State(state): State<AppState>,
     auth: axum::Extension<AuthContext>,
 ) -> Result<Json<Vec<UserContextRole>>, AppError> {
+    let pool = &state.pool;
     let roles = sqlx::query_as::<_, UserContextRole>(
         "SELECT * FROM user_context_roles WHERE tenant_id = $1 ORDER BY assigned_at DESC",
     )
     .bind(auth.tenant_id)
-    .fetch_all(&pool)
+    .fetch_all(pool)
     .await?;
 
     Ok(Json(roles))
@@ -423,14 +438,15 @@ pub async fn list_context_roles(
 
 /// GET /api/approvals – List pending approvals
 pub async fn list_approvals(
-    State(pool): State<PgPool>,
+    State(state): State<AppState>,
     auth: axum::Extension<AuthContext>,
 ) -> Result<Json<Vec<PendingApproval>>, AppError> {
+    let pool = &state.pool;
     let approvals = sqlx::query_as::<_, PendingApproval>(
         "SELECT * FROM pending_approvals WHERE tenant_id = $1 ORDER BY created_at DESC",
     )
     .bind(auth.tenant_id)
-    .fetch_all(&pool)
+    .fetch_all(pool)
     .await?;
 
     Ok(Json(approvals))
@@ -443,11 +459,12 @@ pub struct ApprovalActionRequest {
 
 /// POST /api/approvals/:id/approve – Duyệt yêu cầu
 pub async fn approve_request(
-    State(pool): State<PgPool>,
+    State(state): State<AppState>,
     auth: axum::Extension<AuthContext>,
     Path(id): Path<Uuid>,
     Json(req): Json<ApprovalActionRequest>,
 ) -> Result<Json<serde_json::Value>, AppError> {
+    let pool = &state.pool;
     let mut tx = pool.begin().await?;
 
     // Lấy pending approval
@@ -503,11 +520,12 @@ pub async fn approve_request(
 
 /// POST /api/approvals/:id/reject – Từ chối yêu cầu
 pub async fn reject_request(
-    State(pool): State<PgPool>,
+    State(state): State<AppState>,
     auth: axum::Extension<AuthContext>,
     Path(id): Path<Uuid>,
     Json(req): Json<ApprovalActionRequest>,
 ) -> Result<Json<serde_json::Value>, AppError> {
+    let pool = &state.pool;
     let result = sqlx::query(
         r#"
         UPDATE pending_approvals
@@ -519,7 +537,7 @@ pub async fn reject_request(
     .bind(auth.tenant_id)
     .bind(auth.user_id)
     .bind(&req.reason)
-    .execute(&pool)
+    .execute(pool)
     .await?;
 
     if result.rows_affected() == 0 {

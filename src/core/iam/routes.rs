@@ -7,7 +7,7 @@ use axum::{
     routing::{delete, get, post, put},
     Router,
 };
-use sqlx::PgPool;
+use crate::core::AppState;
 
 use super::handlers;
 
@@ -19,7 +19,7 @@ use super::handlers;
 /// - `/permissions` – Create + List
 /// - `/user-context-roles` – Assign (HITL) + List
 /// - `/approvals` – List + Approve + Reject
-pub fn iam_routes() -> Router<PgPool> {
+pub fn iam_routes() -> Router<AppState> {
     Router::new()
         // Departments
         .route("/departments", post(handlers::create_department))
