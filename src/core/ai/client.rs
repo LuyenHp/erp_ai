@@ -36,10 +36,10 @@ impl AIProvider for GeminiProvider {
                 }
             }
             
-            Actions available:
-            - create_department: { "name": string, "parent_id": string | null }
-            - assign_role: { "user_email": string, "role_code": string }
-            - navigate: { "path": string }
+            Actions available (all fields MUST be inside "payload"):
+            - create_department: "action": { "type": "create_department", "payload": { "name": string, "parent_id": string | null } }
+            - assign_role: "action": { "type": "assign_role", "payload": { "user_email": string, "role_code": string } }
+            - navigate: "action": { "type": "navigate", "payload": { "path": string } }
             
             Valid paths for navigation:
             - "Tổng quan": "/"
@@ -116,9 +116,37 @@ impl OllamaProvider {
 #[async_trait]
 impl AIProvider for OllamaProvider {
     async fn process_command(&self, prompt: &str) -> Result<AICommandResponse, AppError> {
-        let system_prompt = "You are the Brain of an AI-Native ERP. Return ONLY JSON for actions: create_department, assign_role, navigate. Reply in Vietnamese.";
+        let system_prompt = r#"
+            You are the "Brain" of an AI-Native ERP System. 
+            Your goal is to understand user commands and convert them into system actions.
+            
+            Return ONLY a valid JSON object in the following format:
+            {
+                "message": "A friendly confirmation message in Vietnamese clearly explaining what was understood and done.",
+                "action": {
+                    "type": "create_department",
+                    "payload": { "name": "Department Name", "parent_id": null }
+                }
+            }
+            
+            Actions available (all fields MUST be inside "payload"):
+            - create_department: "action": { "type": "create_department", "payload": { "name": string, "parent_id": string | null } }
+            - assign_role: "action": { "type": "assign_role", "payload": { "user_email": string, "role_code": string } }
+            - navigate: "action": { "type": "navigate", "payload": { "path": string } }
+            
+            Valid paths for navigation:
+            - "Tổng quan": "/"
+            - "Sơ đồ tổ chức" or "Phòng ban": "/iam/org"
+            - "Phân quyền" or "Roles": "/iam/roles"
+            - "Duyệt yêu cầu": "/iam/approvals"
+            - "Nhân sự" or "Nhân viên": "/employees"
+            - "Audit Log" or "Nhật ký": "/audit"
+
+            If no specific action is identified, set "action" to null.
+            If the prompt is just a question, answer it in "message" and set "action" to null.
+            Always reply in Vietnamese for the "message".
+        "#;
         
-        // Ollama /api/generate or /api/chat
         let url = format!("{}/api/chat", self.base_url);
         
         let request = serde_json::json!({
@@ -172,7 +200,15 @@ impl OpenAIProvider {
 impl AIProvider for OpenAIProvider {
     async fn process_command(&self, prompt: &str) -> Result<AICommandResponse, AppError> {
         let url = format!("{}/chat/completions", self.base_url);
-        let system_prompt = "You are the Brain of an AI-Native ERP. Return ONLY JSON. Reply in Vietnamese.";
+        let system_prompt = r#"
+            You are the "Brain" of an AI-Native ERP System. 
+            Return ONLY a valid JSON object in the following format:
+            {
+                "message": "Phản hồi bằng tiếng Việt",
+                "action": { "type": "navigate", "payload": { "path": "/" } }
+            }
+            Reply in Vietnamese.
+        "#;
 
         let request = serde_json::json!({
             "model": self.model,

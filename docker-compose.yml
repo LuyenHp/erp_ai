@@ -67,6 +67,9 @@ services:
       APP_PORT: 3000
       RUST_LOG: info
       GOOGLE_AI_KEY: ${GOOGLE_AI_KEY}
+      AI_PROVIDER: ${AI_PROVIDER:-ollama}
+      OLLAMA_MODEL: ${OLLAMA_MODEL:-deepseek-r1:7b}
+      OLLAMA_BASE_URL: http://ollama:11434
     # Only expose to localhost for Cloudflared tunnel
     ports:
       - "127.0.0.1:3000:3000"
@@ -75,6 +78,8 @@ services:
         condition: service_healthy
       kafka:
         condition: service_healthy
+      ollama:
+        condition: service_healthy
     healthcheck:
       test: ["CMD-SHELL", "curl -f http://localhost:3000/health || exit 1"]
       interval: 10s
@@ -82,8 +87,46 @@ services:
       retries: 5
       start_period: 10s
 
+  # ---------------------------------------------------------------------------
+  # Ollama – Local AI Provider
+  # ---------------------------------------------------------------------------
+  ollama:
+    image: ollama/ollama:latest
+    container_name: erp_ai_ollama
+    restart: unless-stopped
+    volumes:
+      - ollama_data:/root/.ollama
+    # INTERNAL ONLY – not exposed to host (Cloudflared policy)
+    # Expose for app service and pull-model helper
+    expose:
+      - "11434"
+    # Map to host's localhost only if needed for external debugging
+    ports:
+      - "127.0.0.1:11434:11434"
+    healthcheck:
+      test: ["CMD-SHELL", "ollama list || exit 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  # Helper to pull the model on startup
+  ollama-pull-model:
+    image: ollama/ollama:latest
+    container_name: erp_ai_ollama_pull
+    environment:
+      - OLLAMA_HOST=ollama:11434
+    volumes:
+      - ollama_data:/root/.ollama
+    entrypoint: /bin/sh
+    command: -c "ollama pull ${OLLAMA_MODEL:-deepseek-r1:7b}"
+    depends_on:
+      ollama:
+        condition: service_healthy
+
 volumes:
   postgres_data:
     driver: local
   kafka_data:
+    driver: local
+  ollama_data:
     driver: local
